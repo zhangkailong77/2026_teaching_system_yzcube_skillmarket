@@ -1,0 +1,53 @@
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.core.security import decode_access_token
+from app.db.session import get_db
+from app.models.user import User
+from app.schemas.auth import (
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TokenPairResponse,
+    UserPublic,
+)
+from app.services.auth_service import AuthService
+
+router = APIRouter(prefix='/auth', tags=['auth'])
+
+
+@router.post('/register', response_model=UserPublic, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> UserPublic:
+    user = AuthService(db).register(username=payload.username, password=payload.password)
+    return UserPublic(id=user.id, username=user.username)
+
+
+@router.post('/login', response_model=TokenPairResponse)
+def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenPairResponse:
+    access_token, refresh_token = AuthService(db).login(payload.username, payload.password)
+    return TokenPairResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post('/refresh', response_model=TokenPairResponse)
+def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenPairResponse:
+    access_token, refresh_token = AuthService(db).refresh(payload.refresh_token)
+    return TokenPairResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.get('/me', response_model=UserPublic)
+def me(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> UserPublic:
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='missing bearer token')
+
+    token = authorization.split(' ', 1)[1]
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload['sub'])
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token')
+
+    return UserPublic(id=user.id, username=user.username)
