@@ -17,3 +17,6 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     refresh_tokens = relationship('RefreshToken', back_populates='user', cascade='all, delete-orphan')
+    published_tasks = relationship('Task', back_populates='publisher', cascade='all, delete-orphan')
+    task_claims = relationship('TaskClaim', back_populates='claimer', cascade='all, delete-orphan')
+    task_favorites = relationship('TaskFavorite', back_populates='user', cascade='all, delete-orphan')

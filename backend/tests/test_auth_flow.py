@@ -3,11 +3,11 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-os.environ.setdefault('DATABASE_URL', 'sqlite+pysqlite:///:memory:')
-os.environ.setdefault('ACCESS_TOKEN_EXPIRE_MINUTES', '30')
-os.environ.setdefault('REFRESH_TOKEN_EXPIRE_DAYS', '7')
-os.environ.setdefault('JWT_SECRET_KEY', 'test-secret-key')
-os.environ.setdefault('JWT_ALGORITHM', 'HS256')
+os.environ['DATABASE_URL'] = 'sqlite+pysqlite:///:memory:'
+os.environ['ACCESS_TOKEN_EXPIRE_MINUTES'] = '30'
+os.environ['REFRESH_TOKEN_EXPIRE_DAYS'] = '7'
+os.environ['JWT_SECRET_KEY'] = 'test-secret-key'
+os.environ['JWT_ALGORITHM'] = 'HS256'
 
 from app.main import app  # noqa: E402
 from app.db.base import Base  # noqa: E402

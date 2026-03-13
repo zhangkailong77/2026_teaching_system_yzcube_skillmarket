@@ -1,18 +1,21 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { 
   Search, Home, Briefcase, FolderOpen, Wallet, PlusSquare, 
   Bell, User, ChevronRight, Filter, Zap, Star, Clock, 
   Award, Flame, Sparkles, LayoutGrid, Moon, MonitorSmartphone, List,
   CheckCircle2, AlertCircle, Play, FileText, MoreHorizontal,
-  Eye, EyeOff, Heart, Lock, Globe, Plus, Image as ImageIcon, Video,
+  Eye, EyeOff, Heart, Lock, Globe, Plus, Image as ImageIcon, Video, UploadCloud,
   TrendingUp, TrendingDown, CreditCard, Receipt, PieChart,
-  Trophy, Target, ShieldCheck, Hexagon, Medal
+  Trophy, Target, ShieldCheck, Hexagon, Medal, Settings, LogOut
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
   ResponsiveContainer, BarChart, Bar, Cell, Legend,
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
+import LoginModal, { type AuthMode, type RegisterFormState } from '../login/LoginModal';
+import { getMe, login, registerEnterprise } from '../../services/auth';
+import { fetchTasks, type TaskListItem } from '../../services/tasks';
 
 // --- Mock Data: Task Hall ---
 const CATEGORIES = [
@@ -33,6 +36,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/newyear/400/600',
     tags: ['图像生成', '高赏金'],
     reqScore: 80,
+    deadlineAt: '2026-03-20T18:00:00+08:00',
+    createdAt: '2026-03-12T10:20:00+08:00',
     status: 'hot',
     height: 'h-80'
   },
@@ -45,6 +50,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/shoes/400/400',
     tags: ['电商营销', '急单'],
     reqScore: 60,
+    deadlineAt: '2026-03-18T12:00:00+08:00',
+    createdAt: '2026-03-11T16:10:00+08:00',
     status: 'normal',
     height: 'h-56'
   },
@@ -57,6 +64,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/drama/400/700',
     tags: ['视频特效', '周期长'],
     reqScore: 90,
+    deadlineAt: '2026-03-25T23:59:00+08:00',
+    createdAt: '2026-03-10T09:30:00+08:00',
     status: 'hot',
     height: 'h-96'
   },
@@ -69,6 +78,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/tech/400/500',
     tags: ['Prompt调优', '逻辑编排'],
     reqScore: 85,
+    deadlineAt: '2026-03-21T20:00:00+08:00',
+    createdAt: '2026-03-12T08:40:00+08:00',
     status: 'normal',
     height: 'h-64'
   },
@@ -81,6 +92,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/ink/400/450',
     tags: ['数据集处理', '炼丹'],
     reqScore: 85,
+    deadlineAt: '2026-03-29T10:00:00+08:00',
+    createdAt: '2026-03-09T14:25:00+08:00',
     status: 'normal',
     height: 'h-72'
   },
@@ -93,6 +106,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/card/400/600',
     tags: ['排版', '简单'],
     reqScore: 0,
+    deadlineAt: '2026-03-17T23:59:00+08:00',
+    createdAt: '2026-03-13T07:15:00+08:00',
     status: 'normal',
     height: 'h-80'
   },
@@ -105,6 +120,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/cyber/400/500',
     tags: ['角色设计', '精细控制'],
     reqScore: 75,
+    deadlineAt: '2026-03-23T19:30:00+08:00',
+    createdAt: '2026-03-11T11:45:00+08:00',
     status: 'hot',
     height: 'h-64'
   },
@@ -117,6 +134,8 @@ const TASKS = [
     image: 'https://picsum.photos/seed/makeup/400/400',
     tags: ['混剪', '配音'],
     reqScore: 65,
+    deadlineAt: '2026-03-19T21:00:00+08:00',
+    createdAt: '2026-03-12T13:50:00+08:00',
     status: 'normal',
     height: 'h-56'
   }
@@ -264,40 +283,88 @@ const ACHIEVEMENTS = [
   { id: 3, title: '提示词专家', desc: '提示词工程能力分突破 90 分', icon: <Sparkles size={24} className="text-cyan-500" />, color: 'bg-cyan-100 border-cyan-200' },
 ];
 
-export type DashboardView = 'hall' | 'my-tasks' | 'portfolio' | 'wallet' | 'ability';
+export type DashboardView = 'hall' | 'my-tasks' | 'portfolio' | 'wallet' | 'ability' | 'publish';
 
 interface DashboardShellProps {
   currentView: DashboardView;
   onNavigate: (view: DashboardView) => void;
 }
 
+const ACCESS_TOKEN_KEY = 'yzcube_access_token';
+const REFRESH_TOKEN_KEY = 'yzcube_refresh_token';
+const AUTH_USERNAME_KEY = 'yzcube_auth_username';
+
 export default function DashboardShell({ currentView, onNavigate }: DashboardShellProps) {
   const [logoLoadError, setLogoLoadError] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem(ACCESS_TOKEN_KEY)));
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [pendingView, setPendingView] = useState<DashboardView | null>(null);
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [loginForm, setLoginForm] = useState(() => ({
+    username: localStorage.getItem(AUTH_USERNAME_KEY) || '',
+    password: '',
+  }));
+  const [registerForm, setRegisterForm] = useState<RegisterFormState>({
+    companyName: '',
+    username: '',
+    password: '',
+    confirmPassword: '',
+  });
+  const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem(ACCESS_TOKEN_KEY));
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [authInitialized, setAuthInitialized] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
+  const [hallSearch, setHallSearch] = useState('');
+  const [hallSort, setHallSort] = useState<'latest' | 'bounty_desc' | 'deadline_asc'>('latest');
+  const [hallMinBounty, setHallMinBounty] = useState('');
+  const [hallMaxBounty, setHallMaxBounty] = useState('');
+  const [hallMinScore, setHallMinScore] = useState('');
+  const [hallDeadlineWindow, setHallDeadlineWindow] = useState<'all' | '3' | '7' | '30'>('all');
+  const [hallTasks, setHallTasks] = useState<TaskListItem[]>([]);
+  const [hallTotal, setHallTotal] = useState(0);
+  const [hallLoading, setHallLoading] = useState(false);
+  const [hallError, setHallError] = useState('');
   const [myTasksTab, setMyTasksTab] = useState('all'); // 'all' | 'in_progress' | 'reviewing' | 'completed'
   const [portfolioTab, setPortfolioTab] = useState('all'); // 'all' | 'public' | 'private'
   const [walletTab, setWalletTab] = useState('all'); // 'all' | 'income' | 'outcome'
+  const [publishAbilityScore, setPublishAbilityScore] = useState(60);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
   const visibleView = !isAuthenticated && currentView !== 'hall' ? 'hall' : currentView;
 
   const openLoginModal = (nextView?: DashboardView) => {
     if (nextView) {
       setPendingView(nextView);
     }
+    setAuthMode('login');
     setLoginError('');
     setShowLoginModal(true);
   };
 
   const closeLoginModal = () => {
     setShowLoginModal(false);
+    setAuthMode('login');
     setLoginError('');
     setPendingView(null);
+  };
+
+  const handleMenuPlaceholder = (label: string) => {
+    setShowUserMenu(false);
+    window.alert(`${label} 功能正在准备中`);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USERNAME_KEY);
+    setAccessToken(null);
+    setIsAuthenticated(false);
+    setShowUserMenu(false);
+    setPendingView(null);
+    setLoginForm({ username: '', password: '' });
+    onNavigate('hall');
   };
 
   const requireLogin = (action?: () => void) => {
@@ -326,37 +393,234 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
       setLoginError('请输入账号和密码。');
       return;
     }
-    setIsLoggingIn(true);
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    setIsAuthenticated(true);
-    setIsLoggingIn(false);
-    setShowLoginModal(false);
-    setLoginError('');
-    if (pendingView) {
-      onNavigate(pendingView);
-      setPendingView(null);
+    try {
+      setIsLoggingIn(true);
+      setLoginError('');
+      const tokens = await login(loginForm.username.trim(), loginForm.password);
+      const me = await getMe(tokens.accessToken);
+
+      localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+      localStorage.setItem(AUTH_USERNAME_KEY, me.username);
+
+      setAccessToken(tokens.accessToken);
+      setLoginForm((prev) => ({ ...prev, username: me.username, password: '' }));
+      setIsAuthenticated(true);
+      setShowLoginModal(false);
+      setAuthMode('login');
+      setPendingView((prev) => {
+        if (prev) {
+          onNavigate(prev);
+        }
+        return null;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '登录失败，请稍后重试。';
+      setLoginError(message);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (
+      !registerForm.companyName.trim() ||
+      !registerForm.username.trim() ||
+      !registerForm.password.trim() ||
+      !registerForm.confirmPassword.trim()
+    ) {
+      setLoginError('请完整填写企业注册信息。');
+      return;
+    }
+    if (registerForm.password !== registerForm.confirmPassword) {
+      setLoginError('两次输入的密码不一致。');
+      return;
+    }
+
+    try {
+      setIsLoggingIn(true);
+      setLoginError('');
+      await registerEnterprise(registerForm.username.trim(), registerForm.password);
+      setAuthMode('login');
+      setShowPassword(false);
+      setLoginForm({
+        username: registerForm.username.trim(),
+        password: '',
+      });
+      setRegisterForm({
+        companyName: '',
+        username: '',
+        password: '',
+        confirmPassword: '',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '注册失败，请稍后重试。';
+      setLoginError(message);
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   useEffect(() => {
+    if (!accessToken) {
+      setIsAuthenticated(false);
+      setAuthInitialized(true);
+      return;
+    }
+
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        const me = await getMe(accessToken);
+        if (cancelled) {
+          return;
+        }
+        setIsAuthenticated(true);
+        setLoginForm((prev) => ({ ...prev, username: me.username, password: '' }));
+        localStorage.setItem(AUTH_USERNAME_KEY, me.username);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+        localStorage.removeItem(AUTH_USERNAME_KEY);
+        setAccessToken(null);
+        setIsAuthenticated(false);
+      } finally {
+        if (!cancelled) {
+          setAuthInitialized(true);
+        }
+      }
+    };
+
+    restore();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && showLoginModal) {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (showLoginModal) {
         closeLoginModal();
+      }
+      if (showUserMenu) {
+        setShowUserMenu(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [showLoginModal]);
+  }, [showLoginModal, showUserMenu]);
 
   useEffect(() => {
+    if (!showUserMenu) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (!userMenuRef.current?.contains(target)) {
+        setShowUserMenu(false);
+      }
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('touchstart', onPointerDown);
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [showUserMenu]);
+
+  useEffect(() => {
+    if (!authInitialized) {
+      return;
+    }
     if (!isAuthenticated && currentView !== 'hall') {
       openLoginModal();
     }
-  }, [currentView, isAuthenticated]);
+  }, [authInitialized, currentView, isAuthenticated]);
+
+  useEffect(() => {
+    if (visibleView !== 'hall') {
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setHallLoading(true);
+        setHallError('');
+        const categoryMap: Record<string, string | undefined> = {
+          all: undefined,
+          comfyui: 'comfyui',
+          video: 'video',
+          agent: 'agent',
+          design: 'design',
+        };
+        const result = await fetchTasks({
+          q: hallSearch || undefined,
+          category: categoryMap[activeTab],
+          bounty_min: hallMinBounty.trim() ? Number(hallMinBounty) : undefined,
+          bounty_max: hallMaxBounty.trim() ? Number(hallMaxBounty) : undefined,
+          min_score: hallMinScore.trim() ? Number(hallMinScore) : undefined,
+          deadline_days: hallDeadlineWindow === 'all' ? undefined : Number(hallDeadlineWindow),
+          sort: hallSort,
+          page: 1,
+          page_size: 50,
+        });
+        if (cancelled) {
+          return;
+        }
+        setHallTasks(result.items);
+        setHallTotal(result.total);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setHallError(err instanceof Error ? err.message : '任务加载失败');
+      } finally {
+        if (!cancelled) {
+          setHallLoading(false);
+        }
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, hallDeadlineWindow, hallMaxBounty, hallMinBounty, hallMinScore, hallSearch, hallSort, visibleView]);
 
   // --- Render Task Hall Content ---
-  const renderTaskHall = () => (
-    <div className="max-w-[1600px] mx-auto space-y-8">
+  const renderTaskHall = () => {
+    const now = Date.now();
+    const categoryLabelMap: Record<string, string> = {
+      comfyui: 'ComfyUI',
+      video: '短视频',
+      agent: '智能体',
+      design: '平面设计',
+    };
+
+    const formatDeadline = (iso: string) => {
+      const target = new Date(iso).getTime();
+      const diff = target - now;
+      if (diff <= 0) {
+        return '已截止';
+      }
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+      if (days > 0) {
+        return `${days}天${hours}小时后截止`;
+      }
+      return `${hours}小时后截止`;
+    };
+    const previewHeightPool = ['h-52', 'h-60', 'h-64', 'h-72', 'h-80'];
+
+    return (
+      <div className="max-w-[1600px] mx-auto space-y-8">
       {/* Hero Banners */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 relative rounded-2xl overflow-hidden h-64 group cursor-pointer shadow-sm">
@@ -416,41 +680,137 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
       </div>
 
       {/* Task Board Filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-2 rounded-xl border border-slate-200/60 shadow-sm">
-        <div className="flex items-center gap-1">
-          {['全部', '推荐', '高赏金', '最新发布'].map((tab, i) => (
-            <button key={i} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${i === 0 ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:text-blue-600 hover:bg-slate-50'}`}>
-              {tab}
+      <div className="bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-6 gap-3">
+          <input
+            type="text"
+            value={hallSearch}
+            onChange={(e) => setHallSearch(e.target.value)}
+            placeholder="搜索任务标题/企业/标签"
+            className="lg:col-span-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          />
+          <input
+            type="number"
+            value={hallMinBounty}
+            onChange={(e) => setHallMinBounty(e.target.value)}
+            placeholder="最低赏金"
+            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          />
+          <input
+            type="number"
+            value={hallMaxBounty}
+            onChange={(e) => setHallMaxBounty(e.target.value)}
+            placeholder="最高赏金"
+            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          />
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={hallMinScore}
+            onChange={(e) => setHallMinScore(e.target.value)}
+            placeholder="最低能力分"
+            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setHallSearch('');
+              setHallMinBounty('');
+              setHallMaxBounty('');
+              setHallMinScore('');
+              setHallDeadlineWindow('all');
+              setHallSort('latest');
+            }}
+            className="text-sm font-medium text-slate-600 hover:text-blue-600 border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors"
+          >
+            重置筛选
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-xs text-slate-500 mr-1 flex items-center gap-1">
+            <Filter size={13} /> 截止时间
+          </div>
+          {[
+            { value: 'all', label: '不限' },
+            { value: '3', label: '3天内' },
+            { value: '7', label: '7天内' },
+            { value: '30', label: '30天内' },
+          ].map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setHallDeadlineWindow(item.value as 'all' | '3' | '7' | '30')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                hallDeadlineWindow === item.value
+                  ? 'bg-blue-50 text-blue-600 border border-blue-200'
+                  : 'bg-slate-50 text-slate-500 border border-slate-200 hover:text-blue-600 hover:bg-blue-50'
+              }`}
+            >
+              {item.label}
             </button>
           ))}
-        </div>
-        <div className="flex items-center gap-2 px-2">
-          <button className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-50 transition-colors">
-            <Filter size={16} /> 筛选
-          </button>
-          <div className="w-px h-4 bg-slate-200"></div>
-          <button className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-50 transition-colors">
-            默认排序 <ChevronRight size={14} className="rotate-90" />
-          </button>
+
+          <div className="w-px h-4 bg-slate-200 mx-1"></div>
+          <select
+            value={hallSort}
+            onChange={(e) => setHallSort(e.target.value as 'latest' | 'bounty_desc' | 'deadline_asc')}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500"
+          >
+            <option value="latest">最新发布</option>
+            <option value="bounty_desc">赏金最高</option>
+            <option value="deadline_asc">即将截止</option>
+          </select>
+          <span className="text-xs text-slate-400 ml-auto">共 {hallTotal} 个结果</span>
         </div>
       </div>
 
       {/* Masonry Task Grid */}
-      <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 2xl:columns-5 gap-6 space-y-6 pb-10">
-        {TASKS.map((task) => (
+      <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-5 2xl:columns-5 gap-6 space-y-6 pb-10">
+        {hallError && (
+          <div className="break-inside-avoid bg-white border border-rose-200 rounded-2xl p-6 shadow-sm">
+            <h4 className="text-rose-600 font-semibold mb-1">任务加载失败</h4>
+            <p className="text-sm text-slate-600 mb-4">{hallError}</p>
+            <button
+              type="button"
+              onClick={() => setHallSort((prev) => (prev === 'latest' ? 'bounty_desc' : 'latest'))}
+              className="px-4 py-2 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+            >
+              触发重试
+            </button>
+          </div>
+        )}
+
+        {hallLoading &&
+          Array.from({ length: 6 }).map((_, idx) => (
+            <div key={`skeleton-${idx}`} className="break-inside-avoid bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+              <div className="h-52 bg-slate-100 animate-pulse"></div>
+              <div className="p-4 space-y-3">
+                <div className="h-4 rounded bg-slate-100 animate-pulse"></div>
+                <div className="h-3 rounded bg-slate-100 animate-pulse w-3/4"></div>
+                <div className="h-8 rounded bg-slate-100 animate-pulse"></div>
+              </div>
+            </div>
+          ))}
+
+        {!hallLoading && !hallError && hallTasks.map((task) => {
+          const tags = Array.isArray(task.tags_json) ? task.tags_json.filter((tag): tag is string => typeof tag === 'string') : [];
+          const typeLabel = categoryLabelMap[task.category] ?? task.category;
+          const previewHeightClass = previewHeightPool[task.id % previewHeightPool.length];
+          return (
           <div key={task.id} className="break-inside-avoid bg-white rounded-2xl overflow-hidden border border-slate-200/60 shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:border-blue-200 hover:-translate-y-1 transition-all duration-300 group cursor-pointer flex flex-col">
             
             {/* Image/Preview Area */}
-            <div className={`relative w-full ${task.height} overflow-hidden bg-slate-100`}>
-              <img src={task.image} alt={task.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+            <div className={`relative w-full ${previewHeightClass} overflow-hidden bg-slate-100`}>
+              <img src={`https://picsum.photos/seed/task-${task.id}/640/480`} alt={task.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
               
               {/* Top Badges */}
               <div className="absolute top-3 left-3 flex flex-col gap-2">
                 <span className="bg-black/50 backdrop-blur-md text-white text-xs px-2.5 py-1 rounded-md flex items-center gap-1 w-fit border border-white/10">
-                  {task.type === 'ComfyUI' ? <Sparkles size={12} className="text-blue-300" /> : <MonitorSmartphone size={12} />}
-                  {task.type}
+                  {task.category === 'comfyui' ? <Sparkles size={12} className="text-blue-300" /> : <MonitorSmartphone size={12} />}
+                  {typeLabel}
                 </span>
-                {task.status === 'hot' && (
+                {(tags.includes('急单') || task.status === 'urgent') && (
                   <span className="bg-gradient-to-r from-red-500 to-orange-500 text-white text-xs px-2.5 py-1 rounded-md flex items-center gap-1 w-fit shadow-sm border border-red-400/50">
                     <Flame size={12} /> 急单
                   </span>
@@ -475,7 +835,7 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
               </h4>
               
               <div className="flex flex-wrap gap-1.5 mb-4">
-                {task.tags.map((tag, i) => (
+                {tags.map((tag, i) => (
                   <span key={i} className="text-[10px] bg-slate-50 text-slate-500 border border-slate-100 px-2 py-1 rounded-md">
                     {tag}
                   </span>
@@ -485,18 +845,19 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
               <div className="mt-auto pt-4 border-t border-slate-100 flex items-end justify-between">
                 <div>
                   <div className="text-xs text-slate-400 mb-1 flex items-center gap-1">
-                    <User size={12} /> {task.enterprise}
+                    <User size={12} /> {task.enterprise_name}
                   </div>
+                  <div className="text-[10px] text-amber-600 mb-1.5">{formatDeadline(task.deadline_at)}</div>
                   <div className="text-lg font-black text-blue-600 flex items-center gap-1">
-                    <span className="text-sm">💰</span> {task.bounty} <span className="text-xs font-normal text-slate-400">积分</span>
+                    <span className="text-sm">💰</span> {task.bounty_points} <span className="text-xs font-normal text-slate-400">积分</span>
                   </div>
                 </div>
                 
                 {/* Requirement & Action */}
                 <div className="flex flex-col items-end gap-2">
-                  {task.reqScore > 0 ? (
+                  {task.required_score > 0 ? (
                     <div className="text-[10px] text-slate-500 flex items-center gap-1 bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded">
-                      <Award size={10} className="text-blue-500" /> 能力分 ≥ {task.reqScore}
+                      <Award size={10} className="text-blue-500" /> 能力分 ≥ {task.required_score}
                     </div>
                   ) : (
                     <div className="text-[10px] text-emerald-600 flex items-center gap-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
@@ -514,10 +875,36 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
             </div>
 
           </div>
-        ))}
+        );})}
+
+        {!hallLoading && !hallError && hallTasks.length === 0 && (
+          <div className="break-inside-avoid bg-white border border-slate-200/60 rounded-2xl p-10 text-center shadow-sm">
+            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+              <FileText size={18} />
+            </div>
+            <h4 className="text-slate-800 font-semibold mb-1">没有符合条件的任务</h4>
+            <p className="text-sm text-slate-500 mb-4">你可以放宽筛选条件，或切换任务赛道再试试。</p>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('all');
+                setHallSearch('');
+                setHallMinBounty('');
+                setHallMaxBounty('');
+                setHallMinScore('');
+                setHallDeadlineWindow('all');
+                setHallSort('latest');
+              }}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+            >
+              清空筛选
+            </button>
+          </div>
+        )}
       </div>
     </div>
-  );
+    );
+  };
 
   // --- Render My Tasks Content ---
   const renderMyTasks = () => {
@@ -1071,6 +1458,121 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
     );
   };
 
+  const renderPublishTask = () => {
+    return (
+      <div className="max-w-[1600px] mx-auto space-y-6">
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">发布新任务</h2>
+          <p className="text-slate-500 text-sm">填写任务需求，吸引平台优质创作者为您提供交付物。</p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-8 max-w-4xl">
+          <form className="space-y-8" onSubmit={(e) => e.preventDefault()}>
+            <div className="space-y-6">
+              <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-2">基本信息</h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">任务标题 <span className="text-rose-500">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="例如：2026 新春国潮风格海报批量生成"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">任务类型 <span className="text-rose-500">*</span></label>
+                  <select className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-all appearance-none">
+                    <option value="">请选择任务类型</option>
+                    <option value="comfyui">ComfyUI 工作流</option>
+                    <option value="video">短视频剪辑</option>
+                    <option value="agent">客服智能体</option>
+                    <option value="design">平面视觉设计</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">任务赏金 (积分) <span className="text-rose-500">*</span></label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">💰</span>
+                    <input
+                      type="number"
+                      placeholder="输入积分数量"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">截止日期 <span className="text-rose-500">*</span></label>
+                  <input
+                    type="date"
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-all text-slate-600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-2">需求详情</h3>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">任务描述 <span className="text-rose-500">*</span></label>
+                <textarea
+                  rows={5}
+                  placeholder="详细描述您的任务需求、交付标准、风格偏好等..."
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-3 text-sm outline-none transition-all resize-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">参考附件</label>
+                <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:bg-slate-50 hover:border-blue-400 transition-colors cursor-pointer group">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                    <UploadCloud size={24} />
+                  </div>
+                  <p className="text-sm font-medium text-slate-700 mb-1">点击或拖拽文件到此处上传</p>
+                  <p className="text-xs text-slate-400">支持 JPG, PNG, PDF, ZIP 格式，单个文件不超过 50MB</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-2">接单门槛</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">最低能力分要求</label>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={publishAbilityScore}
+                      onChange={(e) => setPublishAbilityScore(Number(e.target.value))}
+                      className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <span className="text-sm font-bold text-blue-600 w-14 text-right">{publishAbilityScore} 分</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">设置门槛可筛选更优质的创作者，但可能影响接单速度。</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-slate-100 flex items-center justify-end gap-4">
+              <button type="button" className="px-6 py-2.5 rounded-xl font-medium text-slate-600 hover:bg-slate-100 transition-colors text-sm">
+                保存草稿
+              </button>
+              <button type="submit" className="bg-blue-600 text-white px-8 py-2.5 rounded-xl font-bold text-sm hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all">
+                确认发布
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-screen bg-[#F4F7FB] text-slate-800 font-sans overflow-hidden">
       
@@ -1164,8 +1666,10 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
             <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">企业服务</div>
             <nav className="space-y-1">
               <button
-                onClick={() => requireLogin()}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-slate-600 hover:bg-slate-50 hover:text-blue-600 rounded-lg font-medium transition-colors"
+                onClick={() => handleProtectedNavigate('publish')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${
+                  visibleView === 'publish' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-600'
+                }`}
               >
                 <PlusSquare size={18} />
                 <span>发布新任务</span>
@@ -1209,17 +1713,73 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
             <div className="h-6 w-px bg-slate-200"></div>
 
             {isAuthenticated ? (
-              <div className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity">
-                <div className="text-right hidden md:block">
-                  <div className="text-sm font-bold text-slate-800">{loginForm.username || '张同学'}</div>
-                  <div className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded flex items-center gap-1 mt-0.5 border border-blue-100/50">
-                    <Zap size={10} className="fill-blue-600" />
-                    <span>SSO 已认证 (S-1001)</span>
+              <div className="relative" ref={userMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowUserMenu((prev) => !prev)}
+                  className="flex items-center gap-3 rounded-2xl px-2 py-1.5 cursor-pointer hover:bg-blue-50/70 transition-colors"
+                >
+                  <div className="text-right hidden md:block">
+                    <div className="text-sm font-bold text-slate-800">{loginForm.username || '张同学'}</div>
                   </div>
-                </div>
-                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-blue-400 flex items-center justify-center text-white font-bold shadow-sm border-2 border-white">
-                  {(loginForm.username?.[0] || '张').toUpperCase()}
-                </div>
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-600 to-blue-400 flex items-center justify-center text-white font-bold shadow-sm border-2 border-white">
+                    {(loginForm.username?.[0] || '张').toUpperCase()}
+                  </div>
+                </button>
+
+                {showUserMenu && (
+                  <div className="absolute right-0 top-[calc(100%+10px)] z-30 w-64 rounded-2xl border border-white/70 bg-white/98 backdrop-blur-xl shadow-[0_22px_48px_rgba(15,23,42,0.18)] overflow-hidden">
+                    <div className="px-4 py-3 border-b border-white/70 bg-gradient-to-r from-white/35 to-blue-50/55">
+                      <div className="text-sm font-bold text-slate-800">{loginForm.username || '张同学'}</div>
+                      <div className="mt-1 text-[11px] text-blue-700/90">已通过 SSO 认证</div>
+                    </div>
+                    <div className="p-2">
+                      <button
+                        type="button"
+                        onClick={() => handleMenuPlaceholder('个人资料')}
+                        className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-white/65 hover:text-blue-700 transition-colors cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <User size={15} />
+                          个人资料
+                        </span>
+                        <span className="text-[11px] text-slate-400">即将上线</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMenuPlaceholder('修改密码')}
+                        className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-white/65 hover:text-blue-700 transition-colors cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Lock size={15} />
+                          修改密码
+                        </span>
+                        <span className="text-[11px] text-slate-400">即将上线</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMenuPlaceholder('账户设置')}
+                        className="w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-sm text-slate-700 hover:bg-white/65 hover:text-blue-700 transition-colors cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Settings size={15} />
+                          账户设置
+                        </span>
+                        <span className="text-[11px] text-slate-400">即将上线</span>
+                      </button>
+                    </div>
+                    <div className="px-2 pb-2">
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-rose-600 hover:bg-rose-50/80 transition-colors cursor-pointer"
+                      >
+                        <LogOut size={15} />
+                        退出登录
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <button
@@ -1240,114 +1800,28 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
           {visibleView === 'portfolio' && renderMyPortfolio()}
           {visibleView === 'wallet' && renderWallet()}
           {visibleView === 'ability' && renderAbilityProfile()}
+          {visibleView === 'publish' && renderPublishTask()}
         </div>
       </main>
 
-      {showLoginModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/25 backdrop-blur-md p-4"
-          onClick={closeLoginModal}
-        >
-          <div
-            className="relative w-full max-w-[460px] rounded-[28px] border border-white/60 bg-[#f8fbff]/95 backdrop-blur-xl shadow-[0_24px_80px_rgba(15,23,42,0.22)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              onClick={closeLoginModal}
-              className="absolute top-5 right-5 rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-              aria-label="关闭登录弹窗"
-            >
-              ✕
-            </button>
-
-            <div className="px-8 pt-10 pb-8">
-              <div className="mx-auto mb-5 h-20 w-20 rounded-full border-4 border-blue-100 bg-white shadow-[0_10px_25px_rgba(37,99,235,0.2)] p-1">
-                <img
-                  src={new URL('../../assets/home/logo.png', import.meta.url).href}
-                  alt="平台 Logo"
-                  className="h-full w-full rounded-full object-cover"
-                />
-              </div>
-
-              <div className="text-center mb-7">
-                <h3 className="text-[34px] leading-none font-black text-slate-800 tracking-tight">欢迎继续创作</h3>
-                <p className="text-sm text-slate-500 mt-3">登录后可接单、管理交付与查看个人资产。</p>
-              </div>
-
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">账号</span>
-                  <div className="relative mt-2">
-                    <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={loginForm.username}
-                      onChange={(event) => setLoginForm((prev) => ({ ...prev, username: event.target.value }))}
-                      placeholder="请输入你的账号"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-12 py-3 text-[15px] text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100/70"
-                    />
-                  </div>
-                </label>
-
-                <label className="block">
-                  <span className="text-sm font-semibold text-slate-700">密码</span>
-                  <div className="relative mt-2">
-                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={loginForm.password}
-                      onChange={(event) => setLoginForm((prev) => ({ ...prev, password: event.target.value }))}
-                      placeholder="请输入登录密码"
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-12 py-3 pr-12 text-[15px] text-slate-700 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100/70"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                </label>
-
-                {loginError && (
-                  <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 px-3 py-2 rounded-lg">
-                    {loginError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isLoggingIn}
-                  className="mt-2 h-12 w-full rounded-2xl bg-gradient-to-r from-blue-600 via-blue-500 to-sky-500 text-white text-base font-bold shadow-[0_10px_20px_rgba(37,99,235,0.35)] hover:brightness-105 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
-                >
-                  {isLoggingIn ? '登录中...' : '登录进入平台'}
-                </button>
-
-                <div className="pt-1 text-center">
-                  <button
-                    type="button"
-                    onClick={closeLoginModal}
-                    className="text-sm text-slate-500 hover:text-slate-700"
-                  >
-                    稍后再说
-                  </button>
-                </div>
-              </form>
-
-              <div className="mt-6 flex items-center justify-center gap-5 text-[11px] text-slate-400">
-                <span className="flex items-center gap-1">
-                  <ShieldCheck size={13} />
-                  连接安全加密
-                </span>
-                <span className="flex items-center gap-1">
-                  <Lock size={13} />
-                  账户隐私保护
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <LoginModal
+        open={showLoginModal}
+        authMode={authMode}
+        loginForm={loginForm}
+        registerForm={registerForm}
+        loginError={loginError}
+        isLoggingIn={isLoggingIn}
+        showPassword={showPassword}
+        logoSrc={new URL('../../assets/home/logo.png', import.meta.url).href}
+        onClose={closeLoginModal}
+        onSetAuthMode={setAuthMode}
+        onSetLoginForm={setLoginForm}
+        onSetRegisterForm={setRegisterForm}
+        onSetShowPassword={setShowPassword}
+        onClearError={() => setLoginError('')}
+        onLoginSubmit={handleLoginSubmit}
+        onRegisterSubmit={handleRegisterSubmit}
+      />
     </div>
   );
 }

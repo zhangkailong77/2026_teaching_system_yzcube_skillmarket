@@ -1,16 +1,22 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom';
-import AbilityView from '../views/AbilityView';
-import HallView from '../views/HallView';
-import MyTasksView from '../views/MyTasksView';
-import PortfolioView from '../views/PortfolioView';
-import WalletView from '../views/WalletView';
+import DashboardLayoutView from '../views/DashboardLayoutView';
+import SsoCallbackView from '../views/SsoCallbackView';
 
 export const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/hall" replace /> },
-  { path: '/hall', element: <HallView /> },
-  { path: '/my-tasks', element: <MyTasksView /> },
-  { path: '/portfolio', element: <PortfolioView /> },
-  { path: '/wallet', element: <WalletView /> },
-  { path: '/ability', element: <AbilityView /> },
+  { path: '/sso/callback', element: <SsoCallbackView /> },
+  {
+    path: '/',
+    element: <DashboardLayoutView />,
+    children: [
+      { index: true, element: <Navigate to="/hall" replace /> },
+      { path: 'hall', element: null },
+      { path: 'tasks', element: <Navigate to="/my-tasks" replace /> },
+      { path: 'my-tasks', element: null },
+      { path: 'portfolio', element: null },
+      { path: 'wallet', element: null },
+      { path: 'ability', element: null },
+      { path: 'publish', element: null },
+    ],
+  },
   { path: '*', element: <Navigate to="/hall" replace /> },
 ]);

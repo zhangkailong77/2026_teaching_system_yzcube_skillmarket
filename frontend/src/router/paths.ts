@@ -6,6 +6,7 @@ export const viewPathMap: Record<DashboardView, string> = {
   portfolio: '/portfolio',
   wallet: '/wallet',
   ability: '/ability',
+  publish: '/publish',
 };
 
 export const pathViewMap: Record<string, DashboardView> = {
@@ -14,4 +15,5 @@ export const pathViewMap: Record<string, DashboardView> = {
   '/portfolio': 'portfolio',
   '/wallet': 'wallet',
   '/ability': 'ability',
+  '/publish': 'publish',
 };

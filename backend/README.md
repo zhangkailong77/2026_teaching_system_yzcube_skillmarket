@@ -35,6 +35,16 @@ conda run --no-capture-output -n yzcube-backend-py312 pytest -q
 - `POST /api/v1/auth/refresh`
 - `GET /api/v1/auth/me`
 
+## Federation SSO API
+
+- `POST /hall/federation/sso/exchange`
+  - request: `{ "ticket": "<jwt>" }`
+  - validates: signature, `exp`, `typ`, `iss`, `aud`, `school_id`
+  - replay protection: `jti` (`REDIS_URL`, fallback to in-memory store)
+- `POST /hall/federation/users/sync`
+  - request: `school_id, uid, username, role, password_hash/password, ts, nonce, sign`
+  - validates: HMAC signature + timestamp window + nonce replay
+
 ## Database
 
 - Host: `112.124.32.196`

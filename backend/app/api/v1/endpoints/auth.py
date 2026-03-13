@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.models.hall_user import HallUser
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
@@ -42,7 +43,22 @@ def me(authorization: str | None = Header(default=None), db: Session = Depends(g
     token = authorization.split(' ', 1)[1]
     try:
         payload = decode_access_token(token)
-        user_id = int(payload['sub'])
+        subject = str(payload['sub'])
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
+
+    if subject.startswith('hall:'):
+        try:
+            hall_user_id = int(subject.split(':', 1)[1])
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
+        hall_user = db.query(HallUser).filter(HallUser.id == hall_user_id).first()
+        if not hall_user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token')
+        return UserPublic(id=hall_user.id, username=hall_user.username)
+
+    try:
+        user_id = int(subject)
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
 
