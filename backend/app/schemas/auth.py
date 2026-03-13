@@ -18,6 +18,7 @@ class RefreshRequest(BaseModel):
 class UserPublic(BaseModel):
     id: int
     username: str
+    roles: list[str] = []
 
 
 class TokenPairResponse(BaseModel):

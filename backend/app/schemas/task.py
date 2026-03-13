@@ -23,3 +23,25 @@ class TaskListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class TaskClaimResponse(BaseModel):
+    ok: bool = True
+    task_id: int
+    claim_id: int
+
+
+class MyTaskItem(BaseModel):
+    claim_id: int
+    task_id: int
+    title: str
+    enterprise_name: str
+    category: str
+    bounty_points: int
+    claim_status: str
+    deadline_at: datetime
+    claimed_at: datetime
+
+
+class MyTaskListResponse(BaseModel):
+    items: list[MyTaskItem]

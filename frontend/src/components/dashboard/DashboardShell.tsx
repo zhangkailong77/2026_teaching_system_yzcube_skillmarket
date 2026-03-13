@@ -15,7 +15,7 @@ import {
 } from 'recharts';
 import LoginModal, { type AuthMode, type RegisterFormState } from '../login/LoginModal';
 import { getMe, login, registerEnterprise } from '../../services/auth';
-import { fetchTasks, type TaskListItem } from '../../services/tasks';
+import { claimTask, fetchMyTasks, fetchTasks, type MyTaskListItem, type TaskListItem } from '../../services/tasks';
 
 // --- Mock Data: Task Hall ---
 const CATEGORIES = [
@@ -293,6 +293,7 @@ interface DashboardShellProps {
 const ACCESS_TOKEN_KEY = 'yzcube_access_token';
 const REFRESH_TOKEN_KEY = 'yzcube_refresh_token';
 const AUTH_USERNAME_KEY = 'yzcube_auth_username';
+const AUTH_ROLES_KEY = 'yzcube_auth_roles';
 
 export default function DashboardShell({ currentView, onNavigate }: DashboardShellProps) {
   const [logoLoadError, setLogoLoadError] = useState(false);
@@ -311,6 +312,18 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
     confirmPassword: '',
   });
   const [accessToken, setAccessToken] = useState<string | null>(() => localStorage.getItem(ACCESS_TOKEN_KEY));
+  const [currentUserRoles, setCurrentUserRoles] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(AUTH_ROLES_KEY);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -327,12 +340,20 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
   const [hallTotal, setHallTotal] = useState(0);
   const [hallLoading, setHallLoading] = useState(false);
   const [hallError, setHallError] = useState('');
+  const [claimingTaskId, setClaimingTaskId] = useState<number | null>(null);
   const [myTasksTab, setMyTasksTab] = useState('all'); // 'all' | 'in_progress' | 'reviewing' | 'completed'
+  const [myTasks, setMyTasks] = useState<MyTaskListItem[]>([]);
+  const [myTasksLoading, setMyTasksLoading] = useState(false);
+  const [myTasksError, setMyTasksError] = useState('');
   const [portfolioTab, setPortfolioTab] = useState('all'); // 'all' | 'public' | 'private'
   const [walletTab, setWalletTab] = useState('all'); // 'all' | 'income' | 'outcome'
   const [publishAbilityScore, setPublishAbilityScore] = useState(60);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const visibleView = !isAuthenticated && currentView !== 'hall' ? 'hall' : currentView;
+  const canPublishTask = currentUserRoles.includes('enterprise_member')
+    || currentUserRoles.includes('super_admin')
+    || currentUserRoles.includes('sub_admin');
+  const isAdminUser = currentUserRoles.includes('super_admin') || currentUserRoles.includes('sub_admin');
 
   const openLoginModal = (nextView?: DashboardView) => {
     if (nextView) {
@@ -359,8 +380,10 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(AUTH_USERNAME_KEY);
+    localStorage.removeItem(AUTH_ROLES_KEY);
     setAccessToken(null);
     setIsAuthenticated(false);
+    setCurrentUserRoles([]);
     setShowUserMenu(false);
     setPendingView(null);
     setLoginForm({ username: '', password: '' });
@@ -384,6 +407,10 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
       openLoginModal(view);
       return;
     }
+    if (view === 'publish' && !canPublishTask) {
+      window.alert('当前账号角色暂无发布任务权限');
+      return;
+    }
     onNavigate(view);
   };
 
@@ -402,8 +429,11 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
       localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
       localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
       localStorage.setItem(AUTH_USERNAME_KEY, me.username);
+      localStorage.setItem(AUTH_ROLES_KEY, JSON.stringify(me.roles || []));
 
       setAccessToken(tokens.accessToken);
+      const nextRoles = me.roles || [];
+      setCurrentUserRoles(nextRoles);
       setLoginForm((prev) => ({ ...prev, username: me.username, password: '' }));
       setIsAuthenticated(true);
       setShowLoginModal(false);
@@ -414,6 +444,9 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
         }
         return null;
       });
+      if (!pendingView && (nextRoles.includes('super_admin') || nextRoles.includes('sub_admin'))) {
+        window.location.replace('/admin');
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '登录失败，请稍后重试。';
       setLoginError(message);
@@ -477,8 +510,17 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
           return;
         }
         setIsAuthenticated(true);
+        const restoredRoles = me.roles || [];
+        setCurrentUserRoles(restoredRoles);
         setLoginForm((prev) => ({ ...prev, username: me.username, password: '' }));
         localStorage.setItem(AUTH_USERNAME_KEY, me.username);
+        localStorage.setItem(AUTH_ROLES_KEY, JSON.stringify(restoredRoles));
+        if (
+          currentView === 'hall'
+          && (restoredRoles.includes('super_admin') || restoredRoles.includes('sub_admin'))
+        ) {
+          window.location.replace('/admin');
+        }
       } catch {
         if (cancelled) {
           return;
@@ -486,8 +528,10 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
         localStorage.removeItem(ACCESS_TOKEN_KEY);
         localStorage.removeItem(REFRESH_TOKEN_KEY);
         localStorage.removeItem(AUTH_USERNAME_KEY);
+        localStorage.removeItem(AUTH_ROLES_KEY);
         setAccessToken(null);
         setIsAuthenticated(false);
+        setCurrentUserRoles([]);
       } finally {
         if (!cancelled) {
           setAuthInitialized(true);
@@ -500,7 +544,7 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, currentView]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -593,6 +637,77 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
       cancelled = true;
     };
   }, [activeTab, hallDeadlineWindow, hallMaxBounty, hallMinBounty, hallMinScore, hallSearch, hallSort, visibleView]);
+
+  useEffect(() => {
+    if (visibleView !== 'my-tasks' || !accessToken || !isAuthenticated) {
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setMyTasksLoading(true);
+        setMyTasksError('');
+        const result = await fetchMyTasks(accessToken);
+        if (cancelled) {
+          return;
+        }
+        setMyTasks(result.items);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setMyTasksError(err instanceof Error ? err.message : '我的任务加载失败');
+      } finally {
+        if (!cancelled) {
+          setMyTasksLoading(false);
+        }
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, isAuthenticated, visibleView]);
+
+  const handleClaimTask = async (taskId: number) => {
+    if (!isAuthenticated || !accessToken) {
+      openLoginModal();
+      return;
+    }
+    try {
+      setClaimingTaskId(taskId);
+      await claimTask(taskId, accessToken);
+      setHallTasks((prev) => prev.filter((task) => task.id !== taskId));
+      setHallTotal((prev) => Math.max(0, prev - 1));
+      window.alert('接单成功，已加入我的任务。');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '接单失败';
+      if (message === 'no claim permission') {
+        window.alert('当前账号暂无接单权限。');
+        return;
+      }
+      if (message === 'already claimed') {
+        window.alert('你已接过该任务。');
+        return;
+      }
+      if (message === 'task fully claimed') {
+        window.alert('该任务已被抢完。');
+        return;
+      }
+      if (message === 'task expired') {
+        window.alert('该任务已截止。');
+        return;
+      }
+      if (message === 'missing bearer token' || message === 'invalid access token') {
+        window.alert('登录态已失效，请重新登录。');
+        handleLogout();
+        return;
+      }
+      window.alert(`接单失败：${message}`);
+    } finally {
+      setClaimingTaskId(null);
+    }
+  };
 
   // --- Render Task Hall Content ---
   const renderTaskHall = () => {
@@ -865,10 +980,13 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
                     </div>
                   )}
                   <button
-                    onClick={() => requireLogin()}
-                    className="bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-blue-700 hover:shadow-md hover:shadow-blue-200 transition-all"
+                    onClick={() => requireLogin(() => {
+                      void handleClaimTask(task.id);
+                    })}
+                    disabled={claimingTaskId === task.id}
+                    className="bg-blue-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-blue-700 hover:shadow-md hover:shadow-blue-200 transition-all"
                   >
-                    抢单
+                    {claimingTaskId === task.id ? '抢单中...' : '抢单'}
                   </button>
                 </div>
               </div>
@@ -908,9 +1026,44 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
 
   // --- Render My Tasks Content ---
   const renderMyTasks = () => {
-    const filteredTasks = myTasksTab === 'all' 
-      ? MY_TASKS 
-      : MY_TASKS.filter(t => t.status === myTasksTab);
+    const statusMap: Record<string, string> = {
+      claimed: 'in_progress',
+      submitted: 'reviewing',
+      reviewing: 'reviewing',
+      completed: 'completed',
+      rejected: 'failed',
+      cancelled: 'failed',
+    };
+    const categoryLabelMap: Record<string, string> = {
+      comfyui: 'ComfyUI',
+      video: '短视频',
+      agent: '智能体',
+      design: '平面设计',
+    };
+    const convertedTasks = myTasks.map((item) => {
+      const taskStatus = statusMap[item.claim_status] || 'in_progress';
+      const deadlineDate = new Date(item.deadline_at);
+      const now = Date.now();
+      const diffMs = deadlineDate.getTime() - now;
+      const days = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+      const hours = Math.max(0, Math.floor((diffMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000)));
+      const timeRemaining = diffMs > 0 ? `${days}天 ${hours}小时` : '已截止';
+      return {
+        id: item.task_id,
+        title: item.title,
+        enterprise: item.enterprise_name,
+        bounty: item.bounty_points,
+        type: categoryLabelMap[item.category] || item.category,
+        image: `https://picsum.photos/seed/my-task-${item.task_id}/640/360`,
+        status: taskStatus,
+        deadline: deadlineDate.toLocaleString(),
+        progress: taskStatus === 'completed' ? 100 : taskStatus === 'reviewing' ? 100 : 30,
+        timeRemaining: taskStatus === 'completed' ? '已结算' : taskStatus === 'reviewing' ? '审核中' : timeRemaining,
+      };
+    });
+    const filteredTasks = myTasksTab === 'all'
+      ? convertedTasks
+      : convertedTasks.filter((t) => t.status === myTasksTab);
 
     return (
       <div className="max-w-[1600px] mx-auto space-y-6">
@@ -957,6 +1110,14 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
 
         {/* Task List */}
         <div className="space-y-4 pb-10">
+          {myTasksError && (
+            <div className="bg-white rounded-2xl border border-rose-200 p-5 text-sm text-rose-600">
+              我的任务加载失败：{myTasksError}
+            </div>
+          )}
+          {myTasksLoading && (
+            <div className="bg-white rounded-2xl border border-slate-200/60 p-5 text-sm text-slate-500">正在加载我的任务...</div>
+          )}
           {filteredTasks.map(task => (
             <div key={task.id} className="bg-white rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col md:flex-row gap-6">
               
@@ -1662,20 +1823,22 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
           </div>
 
           {/* Menu Group 3 - Enterprise */}
-          <div>
-            <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">企业服务</div>
-            <nav className="space-y-1">
-              <button
-                onClick={() => handleProtectedNavigate('publish')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${
-                  visibleView === 'publish' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-600'
-                }`}
-              >
-                <PlusSquare size={18} />
-                <span>发布新任务</span>
-              </button>
-            </nav>
-          </div>
+          {canPublishTask && (
+            <div>
+              <div className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">企业服务</div>
+              <nav className="space-y-1">
+                <button
+                  onClick={() => handleProtectedNavigate('publish')}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors ${
+                    visibleView === 'publish' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-600'
+                  }`}
+                >
+                  <PlusSquare size={18} />
+                  <span>发布新任务</span>
+                </button>
+              </nav>
+            </div>
+          )}
         </div>
 
         {/* Bottom Actions */}

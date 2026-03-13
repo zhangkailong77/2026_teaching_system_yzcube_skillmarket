@@ -6,7 +6,7 @@ from app.api.v1.endpoints.federation import sso_router, users_router
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
-from app.models import HallUser, RefreshToken, Task, TaskClaim, TaskFavorite, User
+from app.models import AuditLog, HallUser, Permission, RefreshToken, Role, RolePermission, Task, TaskClaim, TaskFavorite, User, UserRole
 
 settings = get_settings()
 
@@ -33,7 +33,7 @@ def root() -> dict[str, str]:
 @app.on_event('startup')
 def startup() -> None:
     # Import side effect keeps SQLAlchemy models registered before create_all.
-    _ = (User, RefreshToken, HallUser, Task, TaskClaim, TaskFavorite)
+    _ = (User, RefreshToken, HallUser, Task, TaskClaim, TaskFavorite, Role, Permission, RolePermission, UserRole, AuditLog)
     Base.metadata.create_all(bind=engine)
 
 

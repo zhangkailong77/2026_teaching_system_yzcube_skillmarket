@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   school_id VARCHAR(64) NOT NULL,
   publisher_user_id BIGINT NOT NULL,
+  enterprise_name VARCHAR(128) NULL,
   title VARCHAR(200) NOT NULL,
   category VARCHAR(32) NOT NULL,
   description TEXT NOT NULL,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY ix_tasks_created_at (created_at),
   KEY ix_tasks_school_id (school_id),
   KEY ix_tasks_publisher_user_id (publisher_user_id),
+  KEY ix_tasks_enterprise_name (enterprise_name),
   CONSTRAINT fk_tasks_publisher_user_id FOREIGN KEY (publisher_user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

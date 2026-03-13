@@ -11,21 +11,21 @@
 ## Setup (Conda Python 3.12)
 
 ```bash
-conda create -y -n yzcube-backend-py312 python=3.12
-conda run --no-capture-output -n yzcube-backend-py312 python -m pip install -r backend/requirements.txt
+conda create -y -n yzsm-py312 python=3.12
+conda run --no-capture-output -n yzsm-py312 python -m pip install -r backend/requirements.txt
 ```
 
 ## Run
 
 ```bash
 cd backend
-conda run --no-capture-output -n yzcube-backend-py312 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+conda run --no-capture-output -n yzsm-py312 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Test
 
 ```bash
-conda run --no-capture-output -n yzcube-backend-py312 pytest -q
+conda run --no-capture-output -n yzsm-py312 pytest -q
 ```
 
 ## Auth APIs

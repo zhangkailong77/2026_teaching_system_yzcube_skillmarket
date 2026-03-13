@@ -17,6 +17,7 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     school_id: Mapped[str] = mapped_column(String(64), index=True)
     publisher_user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    enterprise_name: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(200), index=True)
     category: Mapped[str] = mapped_column(String(32), index=True)
     description: Mapped[str] = mapped_column(Text)

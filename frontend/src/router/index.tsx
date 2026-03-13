@@ -1,9 +1,11 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom';
+import AdminConsoleView from '../views/AdminConsoleView';
 import DashboardLayoutView from '../views/DashboardLayoutView';
 import SsoCallbackView from '../views/SsoCallbackView';
 
 export const router = createBrowserRouter([
   { path: '/sso/callback', element: <SsoCallbackView /> },
+  { path: '/admin', element: <AdminConsoleView /> },
   {
     path: '/',
     element: <DashboardLayoutView />,

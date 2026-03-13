@@ -6,6 +6,7 @@ export interface AuthTokens {
 export interface AuthUser {
   id: number;
   username: string;
+  roles: string[];
 }
 
 export interface FederationExchangeUser {

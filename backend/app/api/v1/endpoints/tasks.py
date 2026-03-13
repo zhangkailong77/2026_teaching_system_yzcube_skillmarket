@@ -1,11 +1,16 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.deps.admin_auth import get_user_permission_codes
+from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.models.hall_user import HallUser
 from app.models.task import Task
-from app.schemas.task import TaskListResponse, TaskPublic
+from app.models.task_claim import TaskClaim
+from app.models.user import User
+from app.schemas.task import MyTaskItem, MyTaskListResponse, TaskClaimResponse, TaskListResponse, TaskPublic
 
 router = APIRouter(prefix='/tasks', tags=['tasks'])
 
@@ -64,7 +69,7 @@ def list_tasks(
             required_score=row.required_score,
             deadline_at=row.deadline_at,
             status=row.status,
-            enterprise_name=(row.publisher.username if row.publisher else '未知企业'),
+            enterprise_name=(row.enterprise_name or (row.publisher.username if row.publisher else '未知企业')),
             tags_json=row.tags_json,
             attachments_json=row.attachments_json,
             created_at=row.created_at,
@@ -73,3 +78,123 @@ def list_tasks(
     ]
 
     return TaskListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+def _get_current_user_for_claim(
+    db: Session,
+    authorization: str | None,
+) -> tuple[User, str, str]:
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='missing bearer token')
+
+    token = authorization.split(' ', 1)[1]
+    try:
+        payload = decode_access_token(token)
+        subject = str(payload['sub'])
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
+
+    if subject.startswith('hall:'):
+        try:
+            hall_user_id = int(subject.split(':', 1)[1])
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
+        hall_user = db.query(HallUser).filter(HallUser.id == hall_user_id).first()
+        if not hall_user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token')
+        user = db.query(User).filter(User.username == hall_user.username).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token')
+        return user, hall_user.school_id, hall_user.source_user_id
+
+    try:
+        user_id = int(subject)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token') from exc
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='invalid access token')
+
+    hall_user = db.query(HallUser).filter(HallUser.username == user.username).first()
+    if hall_user:
+        return user, hall_user.school_id, hall_user.source_user_id
+    return user, 'local', str(user.id)
+
+
+@router.post('/{task_id}/claim', response_model=TaskClaimResponse)
+def claim_task(
+    task_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> TaskClaimResponse:
+    user, school_id, source_user_id = _get_current_user_for_claim(db, authorization)
+    permission_codes = get_user_permission_codes(db, user.id)
+    can_claim = 'hall.task.claim' in permission_codes
+    if not can_claim:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='no claim permission')
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='task not found')
+    if task.status != 'open':
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='task not claimable')
+    if task.deadline_at <= datetime.utcnow():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='task expired')
+    if task.claimed_count >= task.max_claimants:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='task fully claimed')
+
+    existing_claim = (
+        db.query(TaskClaim)
+        .filter(TaskClaim.task_id == task.id, TaskClaim.claimer_user_id == user.id)
+        .first()
+    )
+    if existing_claim:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='already claimed')
+
+    claim = TaskClaim(
+        task_id=task.id,
+        claimer_user_id=user.id,
+        claimer_school_id=school_id,
+        claimer_source_user_id=source_user_id,
+        status='claimed',
+    )
+    task.claimed_count += 1
+    if task.claimed_count >= task.max_claimants:
+        task.status = 'full'
+
+    db.add(claim)
+    db.commit()
+    db.refresh(claim)
+
+    return TaskClaimResponse(task_id=task.id, claim_id=claim.id)
+
+
+@router.get('/my', response_model=MyTaskListResponse)
+def my_tasks(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MyTaskListResponse:
+    user, _, _ = _get_current_user_for_claim(db, authorization)
+    rows = (
+        db.query(TaskClaim, Task)
+        .join(Task, Task.id == TaskClaim.task_id)
+        .filter(TaskClaim.claimer_user_id == user.id)
+        .order_by(TaskClaim.created_at.desc())
+        .all()
+    )
+
+    items = [
+        MyTaskItem(
+            claim_id=claim.id,
+            task_id=task.id,
+            title=task.title,
+            enterprise_name=(task.enterprise_name or (task.publisher.username if task.publisher else '未知企业')),
+            category=task.category,
+            bounty_points=task.bounty_points,
+            claim_status=claim.status,
+            deadline_at=task.deadline_at,
+            claimed_at=claim.claimed_at,
+        )
+        for claim, task in rows
+    ]
+    return MyTaskListResponse(items=items)

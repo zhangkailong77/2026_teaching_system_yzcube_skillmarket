@@ -20,3 +20,4 @@ class User(Base):
     published_tasks = relationship('Task', back_populates='publisher', cascade='all, delete-orphan')
     task_claims = relationship('TaskClaim', back_populates='claimer', cascade='all, delete-orphan')
     task_favorites = relationship('TaskFavorite', back_populates='user', cascade='all, delete-orphan')
+    user_roles = relationship('UserRole', foreign_keys='UserRole.user_id', back_populates='user', cascade='all, delete-orphan')
