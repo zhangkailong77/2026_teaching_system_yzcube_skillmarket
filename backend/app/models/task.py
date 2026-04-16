@@ -25,6 +25,8 @@ class Task(Base):
     required_score: Mapped[int] = mapped_column(Integer, default=0)
     deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     status: Mapped[str] = mapped_column(String(20), default='draft', index=True)
+    selection_mode: Mapped[str] = mapped_column(String(20), default='single')
+    accept_quota: Mapped[int] = mapped_column(Integer, default=1)
     max_claimants: Mapped[int] = mapped_column(Integer, default=1)
     claimed_count: Mapped[int] = mapped_column(Integer, default=0)
     tags_json: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)

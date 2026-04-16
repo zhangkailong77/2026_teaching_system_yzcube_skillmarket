@@ -348,6 +348,8 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
   const [portfolioTab, setPortfolioTab] = useState('all'); // 'all' | 'public' | 'private'
   const [walletTab, setWalletTab] = useState('all'); // 'all' | 'income' | 'outcome'
   const [publishAbilityScore, setPublishAbilityScore] = useState(60);
+  const [publishSelectionMode, setPublishSelectionMode] = useState<'single' | 'multi'>('single');
+  const [publishAcceptQuota, setPublishAcceptQuota] = useState(1);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const visibleView = !isAuthenticated && currentView !== 'hall' ? 'hall' : currentView;
   const canPublishTask = currentUserRoles.includes('enterprise_member')
@@ -1716,6 +1718,61 @@ export default function DashboardShell({ currentView, onNavigate }: DashboardShe
                     <span className="text-sm font-bold text-blue-600 w-14 text-right">{publishAbilityScore} 分</span>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">设置门槛可筛选更优质的创作者，但可能影响接单速度。</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700">成果采纳规则 <span className="text-rose-500">*</span></label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPublishSelectionMode('single');
+                        setPublishAcceptQuota(1);
+                      }}
+                      className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                        publishSelectionMode === 'single'
+                          ? 'border-blue-500 bg-blue-50 text-blue-600'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-blue-300'
+                      }`}
+                    >
+                      单人采纳
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPublishSelectionMode('multi');
+                        setPublishAcceptQuota((prev) => (prev < 2 ? 2 : prev));
+                      }}
+                      className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                        publishSelectionMode === 'multi'
+                          ? 'border-blue-500 bg-blue-50 text-blue-600'
+                          : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-blue-300'
+                      }`}
+                    >
+                      多人采纳
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="text-sm text-slate-600 min-w-[72px]">采纳人数 N</label>
+                    <input
+                      type="number"
+                      min={publishSelectionMode === 'single' ? 1 : 2}
+                      value={publishAcceptQuota}
+                      onChange={(e) => {
+                        const num = Number(e.target.value || 0);
+                        if (Number.isNaN(num)) return;
+                        if (publishSelectionMode === 'single') {
+                          setPublishAcceptQuota(1);
+                          return;
+                        }
+                        setPublishAcceptQuota(Math.max(2, Math.floor(num)));
+                      }}
+                      disabled={publishSelectionMode === 'single'}
+                      className="w-36 bg-slate-50 border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-all disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    发布任务时确定最终采纳名额，抢单阶段允许多人参与。
+                  </p>
                 </div>
               </div>
             </div>

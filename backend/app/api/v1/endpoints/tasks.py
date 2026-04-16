@@ -69,6 +69,8 @@ def list_tasks(
             required_score=row.required_score,
             deadline_at=row.deadline_at,
             status=row.status,
+            selection_mode=row.selection_mode,
+            accept_quota=row.accept_quota,
             enterprise_name=(row.enterprise_name or (row.publisher.username if row.publisher else '未知企业')),
             tags_json=row.tags_json,
             attachments_json=row.attachments_json,
@@ -140,8 +142,6 @@ def claim_task(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='task not claimable')
     if task.deadline_at <= datetime.utcnow():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='task expired')
-    if task.claimed_count >= task.max_claimants:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='task fully claimed')
 
     existing_claim = (
         db.query(TaskClaim)
@@ -158,9 +158,6 @@ def claim_task(
         claimer_source_user_id=source_user_id,
         status='claimed',
     )
-    task.claimed_count += 1
-    if task.claimed_count >= task.max_claimants:
-        task.status = 'full'
 
     db.add(claim)
     db.commit()

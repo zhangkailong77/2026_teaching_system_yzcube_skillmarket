@@ -7,6 +7,8 @@ export interface TaskListItem {
   required_score: number;
   deadline_at: string;
   status: string;
+  selection_mode: 'single' | 'multi' | string;
+  accept_quota: number;
   enterprise_name: string;
   tags_json?: unknown;
   attachments_json?: unknown;

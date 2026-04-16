@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   required_score INT NOT NULL DEFAULT 0,
   deadline_at DATETIME NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  selection_mode VARCHAR(20) NOT NULL DEFAULT 'single',
+  accept_quota INT NOT NULL DEFAULT 1,
   max_claimants INT NOT NULL DEFAULT 1,
   claimed_count INT NOT NULL DEFAULT 0,
   tags_json JSON NULL,

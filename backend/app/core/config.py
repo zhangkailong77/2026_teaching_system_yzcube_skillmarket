@@ -59,6 +59,7 @@ class Settings(BaseModel):
             'http://localhost:3000,http://127.0.0.1:3000,http://192.168.31.66:3000',
         )
     )
+    cors_origin_regex: str | None = os.getenv('CORS_ORIGIN_REGEX')
 
 
 @lru_cache

@@ -12,6 +12,8 @@ class TaskPublic(BaseModel):
     required_score: int
     deadline_at: datetime
     status: str
+    selection_mode: str
+    accept_quota: int
     enterprise_name: str
     tags_json: dict | list | None = None
     attachments_json: dict | list | None = None
